@@ -2,6 +2,39 @@
 
 追踪 X（Twitter）关注者变化，找出取关你的用户。
 
+## 演示
+
+### 快速检查关注者（3 秒完成 500 人）
+
+> 📹 演示 GIF 制作中，完成后会添加在此处。查看制作指南：[docs/GIF_GUIDE.md](docs/GIF_GUIDE.md)
+
+**功能预览**：
+- 点击"检查关注者"按钮
+- 进度显示 `[API] 已拉取 200 人...`
+- 3-5 秒完成 500 人
+- 自动保存快照
+
+### 主要功能界面
+
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="https://via.placeholder.com/250x400/1DA1F2/ffffff?text=Main+Interface" alt="主界面"/>
+      <br/>主界面 - 两个检查按钮
+    </td>
+    <td width="33%" align="center">
+      <img src="https://via.placeholder.com/250x400/1DA1F2/ffffff?text=Progress+%5BAPI%5D" alt="拉取进度"/>
+      <br/>拉取进度 - API 方式
+    </td>
+    <td width="33%" align="center">
+      <img src="https://via.placeholder.com/250x400/1DA1F2/ffffff?text=Results+List" alt="取关名单"/>
+      <br/>取关名单 - 带导出按钮
+    </td>
+  </tr>
+</table>
+
+> 💡 **提示**：实际截图正在制作中。占位图仅用于展示布局。
+
 ## 为什么选择这个扩展？
 
 | 功能 | 其他扩展 | 本扩展 |

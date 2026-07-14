@@ -25,6 +25,7 @@ const X_BEARER =
   "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
 const FOLLOWERS_ENDPOINT = "/i/api/1.1/followers/list.json";
+const FRIENDS_ENDPOINT = "/i/api/1.1/friends/list.json";
 
 // 限速 — 读操作，间隔 + 抖动 + 退避。
 const REQUEST_DELAY_MS = 1000;
@@ -54,7 +55,7 @@ function parseRetryAfterMs(value: string | null): number | undefined {
 }
 
 /** 单次 followers/list 调用（一页）。 */
-async function fetchPage(cursor: string = "-1"): Promise<FetchResult> {
+async function fetchFollowersPage(cursor: string = "-1"): Promise<FetchResult> {
   try {
     const csrf = ct0();
     if (!csrf) return { ok: false, retryable: false };
@@ -69,6 +70,59 @@ async function fetchPage(cursor: string = "-1"): Promise<FetchResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
     const res = await fetch(`${apiOrigin()}${FOLLOWERS_ENDPOINT}?${params}`, {
+      method: "GET",
+      credentials: "include",
+      signal: controller.signal,
+      headers: {
+        authorization: X_BEARER,
+        "x-csrf-token": csrf,
+        "x-twitter-auth-type": "OAuth2Session",
+        "x-twitter-active-user": "yes",
+      },
+    }).finally(() => clearTimeout(timer));
+
+    const status = res.status;
+    if (!res.ok) {
+      return {
+        ok: false,
+        status,
+        retryAfterMs: parseRetryAfterMs(res.headers.get("retry-after")),
+        retryable:
+          status === 408 || status === 425 || status === 429 || status >= 500,
+      };
+    }
+
+    const data = (await res.json()) as {
+      users?: FollowerUser[];
+      next_cursor_str?: string;
+    };
+    return {
+      ok: true,
+      status,
+      users: data.users ?? [],
+      nextCursor: data.next_cursor_str,
+    };
+  } catch {
+    return { ok: false, retryable: true };
+  }
+}
+
+/** 单次 friends/list 调用（一页）。 */
+async function fetchFriendsPage(cursor: string = "-1"): Promise<FetchResult> {
+  try {
+    const csrf = ct0();
+    if (!csrf) return { ok: false, retryable: false };
+
+    const params = new URLSearchParams({
+      count: "200",
+      cursor,
+      skip_status: "true",
+      include_user_entities: "false",
+    });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    const res = await fetch(`${apiOrigin()}${FRIENDS_ENDPOINT}?${params}`, {
       method: "GET",
       credentials: "include",
       signal: controller.signal,
@@ -121,7 +175,7 @@ export async function fetchAllFollowers(
       await sleep(REQUEST_DELAY_MS + jitter);
     }
 
-    const result = await fetchPage(cursor);
+    const result = await fetchFollowersPage(cursor);
     pageCount++;
 
     if (!result.ok) {
@@ -135,7 +189,7 @@ export async function fetchAllFollowers(
       if (result.retryable) {
         // 遇到临时错误，等一会儿重试一次
         await sleep(TRANSIENT_COOLDOWN_MS);
-        const retry = await fetchPage(cursor);
+        const retry = await fetchFollowersPage(cursor);
         if (!retry.ok) {
           return {
             ok: false,
@@ -158,6 +212,61 @@ export async function fetchAllFollowers(
     }
 
     onProgress?.(all.length, -1); // total 未知，传 -1
+  }
+
+  return { ok: true, users: all };
+}
+
+/** 拉取完整关注列表（你关注的人，自动分页，带限速 + 退避）。 */
+export async function fetchAllFriends(
+  onProgress?: (fetched: number, total: number) => void,
+): Promise<{ ok: boolean; users: FollowerUser[]; error?: string }> {
+  const all: FollowerUser[] = [];
+  let cursor = "-1";
+  let pageCount = 0;
+
+  while (cursor !== "0") {
+    if (pageCount > 0) {
+      const jitter = Math.floor(Math.random() * REQUEST_JITTER_MS);
+      await sleep(REQUEST_DELAY_MS + jitter);
+    }
+
+    const result = await fetchFriendsPage(cursor);
+    pageCount++;
+
+    if (!result.ok) {
+      if (result.status === 429) {
+        return {
+          ok: false,
+          users: all,
+          error: `Rate limit (429)，已拉取 ${all.length} 人`,
+        };
+      }
+      if (result.retryable) {
+        await sleep(TRANSIENT_COOLDOWN_MS);
+        const retry = await fetchFriendsPage(cursor);
+        if (!retry.ok) {
+          return {
+            ok: false,
+            users: all,
+            error: `请求失败 (status ${retry.status})，已拉取 ${all.length} 人`,
+          };
+        }
+        all.push(...(retry.users ?? []));
+        cursor = retry.nextCursor ?? "0";
+      } else {
+        return {
+          ok: false,
+          users: all,
+          error: `认证失败 (status ${result.status})`,
+        };
+      }
+    } else {
+      all.push(...(result.users ?? []));
+      cursor = result.nextCursor ?? "0";
+    }
+
+    onProgress?.(all.length, -1);
   }
 
   return { ok: true, users: all };

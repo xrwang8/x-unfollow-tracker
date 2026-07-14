@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAllFollowers, isLoggedIn } from "../../lib/x-api";
+import { fetchAllFollowers, fetchAllFriends, isLoggedIn } from "../../lib/x-api";
 import {
   compareSnapshots,
   deleteSnapshot,
@@ -7,31 +7,38 @@ import {
   listSnapshots,
   saveSnapshot,
   type Snapshot,
+  type SnapshotType,
 } from "../../lib/snapshot";
 import type { FollowerUser } from "../../lib/x-api";
+
+type AnalysisMode = "unfollowers" | "non-mutual";
 
 export function App() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [followersSnapshots, setFollowersSnapshots] = useState<Snapshot[]>([]);
+  const [friendsSnapshots, setFriendsSnapshots] = useState<Snapshot[]>([]);
   const [compareDays, setCompareDays] = useState<7 | 30>(7);
-  const [unfollowers, setUnfollowers] = useState<FollowerUser[]>([]);
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("unfollowers");
+  const [results, setResults] = useState<FollowerUser[]>([]);
   const [loggedIn, setLoggedIn] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
-    loadSnapshots();
+    loadAllSnapshots();
     chrome.cookies
       ?.get({ url: "https://x.com", name: "ct0" })
       .then((c) => setLoggedIn(!!c?.value))
       .catch(() => setLoggedIn(undefined));
   }, []);
 
-  async function loadSnapshots() {
-    const list = await listSnapshots();
-    setSnapshots(list);
+  async function loadAllSnapshots() {
+    const followers = await listSnapshots("followers");
+    const friends = await listSnapshots("friends");
+    setFollowersSnapshots(followers);
+    setFriendsSnapshots(friends);
   }
 
-  async function handleFetch() {
+  async function handleFetchFollowers() {
     if (!isLoggedIn()) {
       alert("未检测到 X 登录态，请先登录 x.com");
       return;
@@ -39,7 +46,7 @@ export function App() {
 
     setLoading(true);
     setProgress("正在拉取关注者列表...");
-    setUnfollowers([]);
+    setResults([]);
 
     const result = await fetchAllFollowers((fetched) => {
       setProgress(`已拉取 ${fetched} 人...`);
@@ -52,13 +59,42 @@ export function App() {
     }
 
     setProgress(`拉取完成，共 ${result.users.length} 人，正在保存...`);
-    await saveSnapshot(result.users);
-    await loadSnapshots();
+    await saveSnapshot(result.users, "followers");
+    await loadAllSnapshots();
+    setProgress(`快照已保存：${result.users.length} 人`);
+    setLoading(false);
+  }
+
+  async function handleFetchFriends() {
+    if (!isLoggedIn()) {
+      alert("未检测到 X 登录态，请先登录 x.com");
+      return;
+    }
+
+    setLoading(true);
+    setProgress("正在拉取你的关注列表...");
+    setResults([]);
+
+    const result = await fetchAllFriends((fetched) => {
+      setProgress(`已拉取 ${fetched} 人...`);
+    });
+
+    if (!result.ok) {
+      setProgress(`失败: ${result.error}`);
+      setLoading(false);
+      return;
+    }
+
+    setProgress(`拉取完成，共 ${result.users.length} 人，正在保存...`);
+    await saveSnapshot(result.users, "friends");
+    await loadAllSnapshots();
     setProgress(`快照已保存：${result.users.length} 人`);
     setLoading(false);
   }
 
   async function handleCompare() {
+    const snapshots = analysisMode === "unfollowers" ? followersSnapshots : friendsSnapshots;
+
     if (snapshots.length < 2) {
       alert("至少需要 2 个快照才能对比");
       return;
@@ -73,58 +109,120 @@ export function App() {
       return;
     }
 
-    const lost = compareSnapshots(old, latest);
-    setUnfollowers(lost);
+    if (analysisMode === "unfollowers") {
+      // 谁取关了你：old 里有、latest 里没有
+      const lost = compareSnapshots(old, latest);
+      setResults(lost);
+    } else {
+      // 未回关列表：你关注的人里，有多少不在你的关注者列表
+      // 需要同时有 friends 和 followers 快照
+      if (friendsSnapshots.length === 0 || followersSnapshots.length === 0) {
+        alert("需要同时检查关注者和你的关注才能分析未回关");
+        return;
+      }
+
+      const latestFriends = friendsSnapshots[0];
+      const latestFollowers = followersSnapshots[0];
+      if (!latestFriends || !latestFollowers) return;
+
+      // 在 friends 但不在 followers = 未回关
+      const followerIds = new Set(latestFollowers.users.map((u) => u.id_str));
+      const nonMutual = latestFriends.users.filter((u) => !followerIds.has(u.id_str));
+      setResults(nonMutual);
+    }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, type: SnapshotType) {
     if (!confirm("确定删除此快照？")) return;
-    await deleteSnapshot(id);
-    await loadSnapshots();
-    setUnfollowers([]);
+    await deleteSnapshot(id, type);
+    await loadAllSnapshots();
+    setResults([]);
   }
 
   return (
     <div className="wrap">
       <h1>X 取关追踪器</h1>
-      <p className="sub">手动检查关注者变化，找出取关你的用户。</p>
+      <p className="sub">手动检查关注者变化，找出取关你的用户或未回关。</p>
 
       {loggedIn === false && (
         <div className="status warn">未检测到 X 登录态，请先登录 x.com。</div>
       )}
 
-      <button className="btn" onClick={handleFetch} disabled={loading}>
-        {loading ? "拉取中..." : "立即检查关注者"}
+      <button className="btn" onClick={handleFetchFollowers} disabled={loading}>
+        {loading ? "拉取中..." : "检查关注者"}
+      </button>
+
+      <button className="btn" onClick={handleFetchFriends} disabled={loading}>
+        {loading ? "拉取中..." : "检查你的关注"}
       </button>
 
       {progress && <div className="status">{progress}</div>}
 
-      {snapshots.length > 0 && (
+      {(followersSnapshots.length > 0 || friendsSnapshots.length > 0) && (
         <div className="section">
-          <h2>历史快照（{snapshots.length} 个）</h2>
-          <div className="snapshots">
-            {snapshots.map((s) => (
-              <div key={s.id} className="snapshot">
-                <span className="snapshot-date">
-                  {new Date(s.timestamp).toLocaleString("zh-CN")}
-                </span>
-                <span className="snapshot-count">{s.users.length} 人</span>
-                <button
-                  className="snapshot-del"
-                  onClick={() => handleDelete(s.id)}
-                >
-                  删除
-                </button>
+          <h2>历史快照</h2>
+
+          {followersSnapshots.length > 0 && (
+            <>
+              <h3 style={{ fontSize: "13px", margin: "10px 0 6px", color: "var(--muted)" }}>
+                关注者快照（{followersSnapshots.length} 个）
+              </h3>
+              <div className="snapshots">
+                {followersSnapshots.map((s) => (
+                  <div key={s.id} className="snapshot">
+                    <span className="snapshot-date">
+                      {new Date(s.timestamp).toLocaleString("zh-CN")}
+                    </span>
+                    <span className="snapshot-count">{s.users.length} 人</span>
+                    <button
+                      className="snapshot-del"
+                      onClick={() => handleDelete(s.id, "followers")}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
+
+          {friendsSnapshots.length > 0 && (
+            <>
+              <h3 style={{ fontSize: "13px", margin: "10px 0 6px", color: "var(--muted)" }}>
+                你的关注快照（{friendsSnapshots.length} 个）
+              </h3>
+              <div className="snapshots">
+                {friendsSnapshots.map((s) => (
+                  <div key={s.id} className="snapshot">
+                    <span className="snapshot-date">
+                      {new Date(s.timestamp).toLocaleString("zh-CN")}
+                    </span>
+                    <span className="snapshot-count">{s.users.length} 人</span>
+                    <button
+                      className="snapshot-del"
+                      onClick={() => handleDelete(s.id, "friends")}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {snapshots.length >= 2 && (
+      {(followersSnapshots.length >= 2 || friendsSnapshots.length >= 2) && (
         <div className="section">
           <h2>对比分析</h2>
           <div className="compare">
+            <select
+              value={analysisMode}
+              onChange={(e) => setAnalysisMode(e.target.value as AnalysisMode)}
+            >
+              <option value="unfollowers">谁取关了你</option>
+              <option value="non-mutual">未回关列表</option>
+            </select>
             <select
               value={compareDays}
               onChange={(e) => setCompareDays(Number(e.target.value) as 7 | 30)}
@@ -132,16 +230,20 @@ export function App() {
               <option value={7}>过去 7 天</option>
               <option value={30}>过去 30 天</option>
             </select>
-            <button className="btn" onClick={handleCompare} style={{ width: "auto", padding: "8px 16px" }}>
-              查看取关
-            </button>
           </div>
+          <button className="btn" onClick={handleCompare}>
+            查看结果
+          </button>
 
-          {unfollowers.length > 0 && (
+          {results.length > 0 && (
             <div>
-              <h2>这些人取关了你（{unfollowers.length} 人）</h2>
+              <h2>
+                {analysisMode === "unfollowers"
+                  ? `这些人取关了你（${results.length} 人）`
+                  : `这些人未回关你（${results.length} 人）`}
+              </h2>
               <div className="unfollowers">
-                {unfollowers.map((u) => (
+                {results.map((u) => (
                   <div key={u.id_str} className="user">
                     {u.profile_image_url_https && (
                       <img
@@ -159,13 +261,13 @@ export function App() {
             </div>
           )}
 
-          {unfollowers.length === 0 && compareDays && (
-            <div className="empty">暂无对比结果，点击"查看取关"按钮分析</div>
+          {results.length === 0 && (
+            <div className="empty">点击"查看结果"按钮开始分析</div>
           )}
         </div>
       )}
 
-      {snapshots.length === 0 && (
+      {followersSnapshots.length === 0 && friendsSnapshots.length === 0 && (
         <div className="empty">暂无快照，点击上方按钮开始检查</div>
       )}
     </div>

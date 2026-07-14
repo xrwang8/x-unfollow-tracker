@@ -153,6 +153,31 @@ export function App() {
     setResults([]);
   }
 
+  function handleExportCSV() {
+    if (results.length === 0) {
+      alert("没有数据可导出");
+      return;
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const modeLabel = analysisMode === "unfollowers" ? "取关名单" : "未回关名单";
+    const csv = [
+      "Username,Name,Profile URL",
+      ...results.map(
+        (u) =>
+          `@${u.screen_name},"${u.name.replace(/"/g, '""')}",https://x.com/${u.screen_name}`,
+      ),
+    ].join("\n");
+
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `x-${modeLabel}-${timestamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="wrap">
       <h1>X 取关追踪器</h1>
@@ -251,11 +276,28 @@ export function App() {
 
           {results.length > 0 && (
             <div>
-              <h2>
-                {analysisMode === "unfollowers"
-                  ? `这些人取关了你（${results.length} 人）`
-                  : `这些人未回关你（${results.length} 人）`}
-              </h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <h2 style={{ margin: 0 }}>
+                  {analysisMode === "unfollowers"
+                    ? `这些人取关了你（${results.length} 人）`
+                    : `这些人未回关你（${results.length} 人）`}
+                </h2>
+                <button
+                  onClick={handleExportCSV}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    background: "#10b981",
+                    color: "white",
+                    border: "0",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  导出 CSV
+                </button>
+              </div>
               <div className="unfollowers">
                 {results.map((u) => (
                   <div key={u.id_str} className="user">

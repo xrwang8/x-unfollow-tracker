@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { fetchAllFollowers, fetchAllFriends, isLoggedIn } from "../../lib/x-api";
+import { isLoggedIn } from "../../lib/x-api";
+import {
+  fetchFollowersHybrid,
+  fetchFriendsHybrid,
+} from "../../lib/hybrid-fetch";
 import {
   compareSnapshots,
   deleteSnapshot,
@@ -48,8 +52,9 @@ export function App() {
     setProgress("正在拉取关注者列表...");
     setResults([]);
 
-    const result = await fetchAllFollowers((fetched) => {
-      setProgress(`已拉取 ${fetched} 人...`);
+    const result = await fetchFollowersHybrid("auto", (fetched, method) => {
+      const methodText = method === "api" ? "API" : "页面滚动";
+      setProgress(`[${methodText}] 已拉取 ${fetched} 人...`);
     });
 
     if (!result.ok) {
@@ -61,7 +66,11 @@ export function App() {
     setProgress(`拉取完成，共 ${result.users.length} 人，正在保存...`);
     await saveSnapshot(result.users, "followers");
     await loadAllSnapshots();
-    setProgress(`快照已保存：${result.users.length} 人`);
+
+    const finalMsg = result.method === "dom"
+      ? `快照已保存：${result.users.length} 人 (使用备用方案)`
+      : `快照已保存：${result.users.length} 人`;
+    setProgress(finalMsg);
     setLoading(false);
   }
 
@@ -75,8 +84,9 @@ export function App() {
     setProgress("正在拉取你的关注列表...");
     setResults([]);
 
-    const result = await fetchAllFriends((fetched) => {
-      setProgress(`已拉取 ${fetched} 人...`);
+    const result = await fetchFriendsHybrid("auto", (fetched, method) => {
+      const methodText = method === "api" ? "API" : "页面滚动";
+      setProgress(`[${methodText}] 已拉取 ${fetched} 人...`);
     });
 
     if (!result.ok) {
@@ -88,7 +98,11 @@ export function App() {
     setProgress(`拉取完成，共 ${result.users.length} 人，正在保存...`);
     await saveSnapshot(result.users, "friends");
     await loadAllSnapshots();
-    setProgress(`快照已保存：${result.users.length} 人`);
+
+    const finalMsg = result.method === "dom"
+      ? `快照已保存：${result.users.length} 人 (使用备用方案)`
+      : `快照已保存：${result.users.length} 人`;
+    setProgress(finalMsg);
     setLoading(false);
   }
 

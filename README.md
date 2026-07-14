@@ -13,6 +13,8 @@
 
 用你的 X 登录态（页面 `ct0` cookie + 站点公开 bearer）调用 X 的 `followers/list.json` 接口，分页拉取关注者列表。限速 1s/页 + 抖动 + 退避，避免触发 X 反滥用。
 
+**API 降级方案**：如果 X 改了接口导致 API 失效（401/403/404），扩展会自动切换到备用方案（DOM 页面滚动抓取），虽然慢但仍能工作。你会在进度提示里看到 `[页面滚动]` 标记。
+
 ## 使用
 
 1. 确保已登录 x.com
@@ -43,9 +45,10 @@ lib/
 
 ## 限制
 
-- X 的 `followers/list` 接口可能随时变更（URL/格式/bearer）
+- X 的 `followers/list` 接口可能随时变更（URL/格式/bearer），但扩展会自动降级到备用方案
 - Rate limit：每页 1s 间隔，遇到 429 会中断（已拉取部分仍会保存）
 - 只追踪关注者（followers），不追踪你关注的人（following）
+- DOM 备用方案需要你在对应页面（followers/following）且会看到自动滚动
 
 ## 许可
 

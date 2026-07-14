@@ -13,7 +13,7 @@ export default defineConfig({
     name: "X 取关追踪器",
     description:
       "追踪 X 关注者变化，找出取关你的用户。手动触发，保留 30 天历史快照。",
-    permissions: ["storage", "cookies"],
+    permissions: ["storage", "cookies", "scripting"],
     host_permissions: ["*://x.com/*", "*://twitter.com/*"],
     action: { default_title: "X 取关追踪器", default_popup: "popup.html" },
   }),
